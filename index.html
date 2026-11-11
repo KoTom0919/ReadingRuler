@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Reading Ruler</title>
+    <link rel="stylesheet" href="./style.css">
+    <script src="./script.js" defer></script>
+    <!-- ブラウザのタブに表示するアイコン -->
+    <link rel="icon" type="image/png" href="./icon.png">
+
+    <!-- iPhone・iPadでホーム画面に追加したときのアイコン -->
+    <link rel="apple-touch-icon" href="./icon.png">
+
+    <!-- ホーム画面に表示するアプリ名 -->
+    <meta name="apple-mobile-web-app-title" content="Reading Ruler">
+</head>
+
+<body>
+    <main>
+        <header>
+            <h1 id="title">ReadingRuler</h1>
+            <button id="history">履歴</button>
+            <button id="import" class="primary">読み込み</button>
+            <button id="settings">設定</button>
+        </header>
+
+        <p id="status" class="status" role="status"></p>
+
+        <section class="reading" aria-label="読む文章">
+            <div class="reader-top">
+                <span>ReadingRuler</span>
+                <span id="reading-page"></span>
+            </div>
+            <div class="reader-grid">
+                <div id="ruler" class="ruler">
+                    <button id="previous-text" class="neighbor" aria-label="前の文を選ぶ"></button>
+                    <div id="current-text" class="current" tabindex="0" aria-live="polite">資料を読み込むと、ここに文章が表示されます。</div>
+                    <button id="next-text" class="neighbor" aria-label="次の文を選ぶ"></button>
+                </div>
+                <div class="line-control">
+                    <button id="line-prev" aria-label="前の行">▲</button>
+                    <label>
+                        <input id="line" type="number" min="1" aria-label="行番号">
+                        <small id="line-total">行</small>
+                    </label>
+                    <button id="line-next" aria-label="次の行">▼</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="source" aria-label="資料の原本">
+            <div class="source-bar">
+                <div class="pagination">
+                    <button id="page-prev" aria-label="前のページ">◀</button>
+                    <label>
+                        <input id="page" type="number" min="1" aria-label="資料のページ番号">
+                        <span id="page-total">ページ</span>
+                    </label>
+                    <button id="page-next" aria-label="次のページ">▶</button>
+                </div>
+                <div class="zoom" aria-label="資料の拡大縮小">
+                    <button id="zoom-out" aria-label="縮小">−</button>
+                    <button id="zoom-reset" aria-label="横幅に合わせる">100%</button>
+                    <button id="zoom-in" aria-label="拡大">＋</button>
+                </div>
+            </div>
+
+            <div class="source-area">
+                <div id="viewer" class="viewer" tabindex="0" aria-label="資料プレビュー">
+                    <div id="empty" class="empty">
+                        <strong>資料プレビュー</strong>
+                        <span>PDF・PNG・JPEG に対応</span>
+                    </div>
+                    <img id="original" alt="資料のページ" draggable="false" hidden>
+                </div>
+
+                <button id="tools" aria-expanded="false" aria-controls="tool-panel">ツール</button>
+                <aside id="tool-panel" hidden>
+                    <div class="dialog-head">
+                        <h2>ツール</h2>
+                        <button id="close-tools" aria-label="ツールを閉じる">×</button>
+                    </div>
+                    <label class="check">
+                        <input id="lock" type="checkbox">
+                        詳細表示する行を固定
+                    </label>
+                    <p class="hint">固定中は、下のページをめくっても上の文章は同じページのままです。</p>
+                    <label class="stack">
+                        メモ
+                        <textarea id="memo" rows="7" placeholder="この資料のメモを書く"></textarea>
+                    </label>
+                    <div class="actions">
+                        <button id="save-memo" class="primary">保存</button>
+                    </div>
+                    <p id="memo-status" class="hint" role="status"></p>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <dialog id="import-dialog">
+        <form id="import-form">
+            <div class="dialog-head">
+                <h2>資料を読み込む</h2>
+                <button type="button" data-close aria-label="閉じる">×</button>
+            </div>
+            <label class="stack">
+                ファイル
+                <input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+                    required>
+            </label>
+            <label class="stack">
+                タイトル（任意）
+                <input id="custom-title" type="text" placeholder="空欄なら冒頭10文字">
+            </label>
+            <label class="stack">
+                読み取るページ（任意）
+                <input id="page-range" type="text" placeholder="例：1,2~4,7" aria-describedby="page-range-help">
+            </label>
+            <p id="page-range-help" class="hint">
+                空欄なら全ページ。カンマで区切り、連続するページは「2~4」と入力してください。
+            </p>
+            <label class="check">
+                <input id="exclude" type="checkbox">
+                図表など、OCRから除外する範囲を指定する
+            </label>
+
+            <div id="mask-editor" hidden>
+                <p class="hint">図表をドラッグで囲んでください。ページを切り替えて複数の範囲を指定できます。</p>
+                <div class="mask-bar">
+                    <button type="button" id="mask-prev" aria-label="前のページ">◀</button>
+                    <span id="mask-page"></span>
+                    <button type="button" id="mask-next" aria-label="次のページ">▶</button>
+                    <button type="button" id="mask-undo">直前の範囲を取り消す</button>
+                </div>
+                <div class="mask-scroll">
+                    <canvas id="mask-canvas" aria-label="OCRから除外する範囲の指定"></canvas>
+                </div>
+            </div>
+
+            <p id="import-status" class="hint" role="status"></p>
+            <div class="actions">
+                <button id="start" class="primary">OCRを開始</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="history-dialog">
+        <div class="dialog-head">
+            <h2>読み込み履歴</h2>
+            <button data-close aria-label="閉じる">×</button>
+        </div>
+        <div id="history-list"></div>
+    </dialog>
+
+    <dialog id="settings-dialog">
+        <div class="dialog-head">
+            <h2>設定</h2>
+            <button data-close aria-label="閉じる">×</button>
+        </div>
+        <label class="stack">
+            文字の大きさ
+            <output id="size-output"></output>
+            <input id="size" type="range" min="14" max="48">
+        </label>
+        <label class="check">
+            ルーラーの色
+            <input id="color" type="color">
+        </label>
+    </dialog>
+</body>
+
+</html>

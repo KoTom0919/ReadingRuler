@@ -1,0 +1,347 @@
+:root {
+  color-scheme: light;
+  --ink: #172b43;
+  --muted: #52657d;
+  --accent: #244f8b;
+  --line: #c6d4e3;
+  --ruler: #416bb6;
+  --reading-size: 24px;
+  font: 16px/1.55 system-ui, "Yu Gothic", Meiryo, sans-serif;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: #edf3fa;
+  color: var(--ink);
+}
+
+main {
+  max-width: 1050px;
+  margin: auto;
+  padding: clamp(10px, 2.5vw, 28px);
+}
+
+button, input, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button, input:not([type=range], [type=checkbox], [type=file]), textarea {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+button {
+  min-height: 42px;
+  padding: .35em .8em;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+button:hover:not(:disabled) { background: #eaf2ff; }
+button:disabled { opacity: .4; cursor: default; }
+:focus-visible { outline: 3px solid #1b68bc; outline-offset: 2px; }
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+button.primary:hover:not(:disabled) { background: #173b71; }
+
+/* タイトルと上部ボタン */
+header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: clamp(4px, 1.2vw, 12px);
+  align-items: center;
+}
+
+h1 {
+  margin: 0;
+  padding: .35em .55em;
+  font-size: clamp(1rem, 3vw, 1.55rem);
+  line-height: 1.4;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+header button { white-space: nowrap; }
+
+/* 上段のリーディングルーラー */
+.reading {
+  margin: 16px 0;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 10px;
+}
+
+.reader-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 700;
+  margin: 0 4px 8px;
+}
+
+.reader-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.ruler {
+  display: grid;
+  grid-template-rows: 1fr 1.18fr 1fr;
+  gap: 1px;
+  border-radius: 8px;
+  padding: clamp(12px, 3vw, 26px) 0;
+  background: var(--ruler);
+  font-size: var(--reading-size);
+  overflow: hidden;
+}
+
+.ruler .neighbor, .current {
+  width: 100%;
+  min-width: 0;
+  height: 2.25em;
+  min-height: 0;
+  padding: .2em .5em;
+  border: 0;
+  border-radius: 0;
+  line-height: 1.8;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ruler .neighbor {
+  background: color-mix(in srgb, var(--ruler) 23%, white);
+  color: #172b43;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  opacity: 1;
+}
+
+.current {
+  background: #fff;
+  color: #121e2b;
+  overflow: hidden;
+}
+
+.line-control {
+  display: grid;
+  align-content: space-between;
+  text-align: center;
+  gap: 5px;
+}
+
+.line-control label { display: grid; gap: 3px; }
+.line-control button, .pagination button { color: var(--accent); }
+
+input[type=number] {
+  width: 3.35em;
+  text-align: center;
+  min-height: 39px;
+  appearance: textfield;
+}
+
+input::-webkit-inner-spin-button, input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+small, .hint, .status { color: var(--muted); }
+
+/* 下段の資料とページ操作 */
+.source {
+  border-top: 2px dashed #9db0c7;
+  padding-top: 12px;
+}
+
+.source-bar, .pagination, .zoom, .mask-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-bar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.pagination label {
+  white-space: nowrap;
+  font-size: .9rem;
+}
+
+.source-area {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.viewer {
+  overflow: auto;
+  height: clamp(340px, 62vh, 790px);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #dfe8f3;
+  touch-action: pan-x pan-y;
+}
+
+.viewer img {
+  display: block;
+  height: auto;
+  margin-inline: auto;
+}
+
+.empty {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: .5em;
+  color: var(--muted);
+}
+
+/* ツールとメモ */
+#tools {
+  writing-mode: vertical-rl;
+  background: #dbe9fa;
+  padding: .7em .35em;
+}
+
+#tool-panel {
+  position: absolute;
+  z-index: 1;
+  inset: 0 0 0 auto;
+  width: min(100%, 375px);
+  overflow: auto;
+  background: #e1edfb;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: -8px 0 24px #243f6322;
+}
+
+/* 読み込み・履歴・設定のダイアログ */
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  width: min(94vw, 620px);
+  padding: clamp(14px, 4vw, 24px);
+  max-height: 90vh;
+}
+
+dialog::backdrop { background: #12253a88; }
+
+.dialog-head, .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.dialog-head h2 { margin: 0; font-size: 1.15rem; }
+.actions { justify-content: flex-end; margin-top: 12px; }
+
+.stack {
+  display: grid;
+  gap: 5px;
+  margin: 13px 0;
+  font-weight: 650;
+}
+
+.stack input[type=text], textarea {
+  width: 100%;
+  padding: 8px;
+  font-weight: 400;
+}
+
+textarea { resize: vertical; }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.check input { accent-color: var(--accent); }
+.hint, .status { font-size: .88rem; }
+.status:empty, #memo-status:empty { margin: 0; }
+
+/* OCRの除外範囲を選ぶプレビュー */
+.mask-bar { flex-wrap: wrap; }
+
+.mask-scroll {
+  max-height: 43vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  margin-top: 8px;
+}
+
+#mask-canvas {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 42vh;
+  margin-inline: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.history-entry {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+.history-entry small {
+  display: block;
+  font-weight: 400;
+}
+
+@media (max-width: 420px) {
+  header button, .source-bar button { padding-inline: .48em; }
+  .source-bar, .pagination, .zoom { gap: 5px; }
+}
+
+/* 外側は濃色、前後の行は半透明、中央の行は透明 */
+.ruler {
+  --ruler-band: clamp(12px, 3vw, 26px);
+  padding-block: var(--ruler-band);
+  background:
+    linear-gradient(var(--ruler), var(--ruler))
+      top / 100% var(--ruler-band) no-repeat,
+    linear-gradient(var(--ruler), var(--ruler))
+      bottom / 100% var(--ruler-band) no-repeat;
+}
+
+.ruler .neighbor,
+.ruler .neighbor:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ruler) 23%, transparent);
+}
+
+.ruler .current {
+  background: transparent;
+}
