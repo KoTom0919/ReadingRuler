@@ -345,3 +345,45 @@ textarea { resize: vertical; }
 .ruler .current {
   background: transparent;
 }
+
+.ruler {
+  grid-template-rows: repeat(3, minmax(2.25em, 1fr));
+}
+
+.ruler .neighbor,
+.ruler .current {
+  display: flex;
+  align-items: center;
+  justify-content: safe center;
+  height: auto;
+  overflow: hidden;
+  text-align: center;
+}
+
+/* 上下の濃い帯で、今読む1行を挟む */
+.ruler {
+  --ruler-band: 14px;
+  grid-template-rows: minmax(2.25em, 1fr);
+  padding-block: var(--ruler-band);
+  background:
+    linear-gradient(var(--ruler), var(--ruler))
+      top / 100% var(--ruler-band) no-repeat,
+    linear-gradient(var(--ruler), var(--ruler))
+      bottom / 100% var(--ruler-band) no-repeat;
+}
+
+/* 前後の文章を隠す */
+.ruler .neighbor {
+  display: none;
+}
+
+/* 今読む文章を横・縦の中央に揃える */
+.ruler .current {
+  display: flex;
+  align-items: center;
+  justify-content: safe center;
+  height: auto;
+  background: color-mix(in srgb, var(--ruler) 23%, transparent);
+  overflow: hidden;
+  text-align: center;
+}

@@ -245,10 +245,13 @@ function displayDocument(document, memo) {
 }
 
 function applySettings() {
-  document.documentElement.style.setProperty('--reading-size', settings.size + 'px');
+  settings.size = clamp(Number(settings.size) || 24, 8, 48);
+
+  document.documentElement.style.setProperty('--reading-size', settings.size + 'pt');
   document.documentElement.style.setProperty('--ruler', settings.color);
+
   $('size').value = settings.size;
-  $('size-output').value = settings.size + ' px';
+  $('size-output').value = settings.size + ' pt';
   $('color').value = settings.color;
 }
 
