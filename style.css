@@ -387,3 +387,9 @@ textarea { resize: vertical; }
   overflow: hidden;
   text-align: center;
 }
+
+.ruler {
+  /* 右側の行送りボタンに合わせて縦に引き伸ばされるのを防ぐ */
+  align-self: center;
+  grid-template-rows: 2.25em;
+}
