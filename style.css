@@ -393,3 +393,8 @@ textarea { resize: vertical; }
   align-self: center;
   grid-template-rows: 2.25em;
 }
+/* 行移動ボタンを連打したときのダブルタップ拡大を防ぐ */
+.line-control button,
+.ruler .neighbor {
+  touch-action: manipulation;
+}
