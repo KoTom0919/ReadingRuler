@@ -7,6 +7,7 @@
     <title>Reading Ruler</title>
     <link rel="stylesheet" href="./style.css">
     <script src="./script.js" defer></script>
+
     <!-- ブラウザのタブに表示するアイコン -->
     <link rel="icon" type="image/png" href="./icon.png">
 
@@ -33,17 +34,32 @@
                 <span>ReadingRuler</span>
                 <span id="reading-page"></span>
             </div>
+
+            <div class="reading-controls">
+                <button id="reading-play" type="button">開始</button>
+                <button id="reading-stop" type="button">停止</button>
+                <button id="reading-search" type="button">検索</button>
+                <span id="playback-status" role="status"></span>
+            </div>
+
             <div class="reader-grid">
                 <div id="ruler" class="ruler">
                     <button id="previous-text" class="neighbor" aria-label="前の文を選ぶ"></button>
-                    <div id="current-text" class="current" tabindex="0" aria-live="polite">資料を読み込むと、ここに文章が表示されます。</div>
+                    <div id="current-text" class="current" tabindex="0" aria-live="polite">
+                        <span id="reading-placeholder">資料を読み込むと、ここに文章が表示されます。</span>
+                        <div id="reading-window" hidden>
+                            <div id="reading-track"></div>
+                        </div>
+                        <span id="reading-measure" aria-hidden="true">あ</span>
+                    </div>
                     <button id="next-text" class="neighbor" aria-label="次の文を選ぶ"></button>
                 </div>
+
                 <div class="line-control">
                     <button id="line-prev" aria-label="前の行">▲</button>
                     <label>
-                        <input id="line" type="number" min="1" aria-label="行番号">
-                        <small id="line-total">行</small>
+                        <input id="line" type="number" min="1" aria-label="文番号">
+                        <small id="line-total">文</small>
                     </label>
                     <button id="line-next" aria-label="次の行">▼</button>
                 </div>
@@ -92,6 +108,7 @@
                         <textarea id="memo" rows="7" placeholder="この資料のメモを書く"></textarea>
                     </label>
                     <div class="actions">
+                        <button id="export-memo" type="button">テキストで出力</button>
                         <button id="save-memo" class="primary">保存</button>
                     </div>
                     <p id="memo-status" class="hint" role="status"></p>
@@ -155,27 +172,46 @@
         <div id="history-list"></div>
     </dialog>
 
+    <dialog id="reading-search-dialog">
+        <div class="dialog-head">
+            <h2>資料内検索</h2>
+            <button data-close aria-label="閉じる">×</button>
+        </div>
+        <form id="reading-search-form" class="reading-controls">
+            <input id="reading-query" type="search" aria-label="検索語" required>
+            <button type="submit">検索</button>
+        </form>
+        <p id="reading-search-status" role="status"></p>
+        <div id="reading-results"></div>
+    </dialog>
+
     <dialog id="settings-dialog">
         <div class="dialog-head">
             <h2>設定</h2>
             <button data-close aria-label="閉じる">×</button>
         </div>
         <label class="stack">
-            文字の大きさ
+            小サイズの文字の大きさ
             <output id="size-output"></output>
             <input id="size" type="range" min="8" max="48">
+        </label>
+        <label class="stack">
+            読む速さ（小サイズの全角文字換算）
+            <output id="speed-output"></output>
+            <input id="speed" type="range" min="1" max="24" step="1" value="6">
         </label>
         <label class="check">
             ルーラーの色
             <input id="color" type="color">
         </label>
-                <div class="actions">
+        <div class="actions">
             <button type="button"
                 onclick="window.location.assign('https://kotom0919.github.io/App-menu/')">
                 ほかのアプリを探す
             </button>
         </div>
     </dialog>
+
     <script defer src="https://kotom0919.github.io/App-menu/notices.js"></script>
 </body>
 

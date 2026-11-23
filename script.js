@@ -10,7 +10,7 @@ let selection;
 let pdfLibrary;
 let ocrLibrary;
 let database;
-const settings = { size: 24, color: '#416bb6' };
+const settings = { size: 24, speed: 6, color: '#416bb6' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('reading-ruler-settings'))); } catch {}
 
 function openDatabase() {
@@ -58,117 +58,282 @@ function fitTitle() {
   heading.textContent = characters.slice(0, low).join('') + '・・・';
 }
 
-const readingMeasure = document.createElement('canvas').getContext('2d');
-const graphemes = new Intl.Segmenter('ja', { granularity: 'grapheme' });
-let readingLayout;
+const dictionaryBase = 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/';
+const parsedSentences = new Map();
+let tokenizer;
+let tokenizerRequest;
+let analysisFailed = false;
+const playback = {
+  frame: null, lastTime: null, distance: 0, page: null, anchor: null,
+  sentenceStarts: [], end: 0, smallWidth: 0
+};
 
-function getReadingLines() {
-  const sentences = state.document?.pages[state.readingPage].lines;
-  if (!sentences) return [];
+function loadTokenizer() {
+  if (tokenizerRequest) return tokenizerRequest;
+  analysisFailed = false;
+  tokenizerRequest = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    const timeout = setTimeout(() => {
+      script.remove();
+      reject(new Error('辞書の読み込みがタイムアウトしました。'));
+    }, 20000);
+    const finish = (error, result) => {
+      clearTimeout(timeout);
+      script.remove();
+      if (error) reject(error);
+      else resolve(result);
+    };
+    script.src = dictionaryBase + 'build/kuromoji.js';
+    script.onerror = () => finish(new Error('解析器を取得できませんでした。'));
+    script.onload = () => {
+      try { window.kuromoji.builder({ dicPath: dictionaryBase + 'dict/' }).build(finish); }
+      catch (error) { finish(error); }
+    };
+    document.head.append(script);
+  }).then(result => {
+    tokenizer = result;
+    playback.page = null;
+    renderReading();
+  }).catch(() => {
+    tokenizerRequest = null;
+    analysisFailed = true;
+    updatePlaybackControls();
+  });
+  updatePlaybackControls();
+  return tokenizerRequest;
+}
 
-  const current = $('current-text');
-  const style = getComputedStyle(current);
-  const width = Math.max(
-    1,
-    current.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 1
-  );
-  const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-
-  if (
-    readingLayout?.sentences === sentences &&
-    readingLayout.width === width &&
-    readingLayout.font === font
-  ) {
-    return readingLayout.lines;
-  }
-
-  readingMeasure.font = font;
-  const lines = [];
-  const positions = [];
-
-  for (const [sentenceIndex, sentence] of sentences.entries()) {
-    const characters = Array.from(graphemes.segment(sentence), ({ segment }) => segment);
-    let start = 0;
-
-    while (start < characters.length) {
-      let end = start + 1;
-      let line = characters[start];
-      let breakAt = start;
-
-      while (end < characters.length) {
-        const next = line + characters[end];
-        if (readingMeasure.measureText(next).width > width) break;
-
-        line = next;
-        end++;
-        if (/[、，,；;\s]/u.test(characters[end - 1])) breakAt = end;
+function classifySentence(sentence) {
+  if (!tokenizer) return [{ text: sentence, className: '' }];
+  if (parsedSentences.has(sentence)) return parsedSentences.get(sentence);
+  const tokens = tokenizer.tokenize(sentence);
+  const runs = [];
+  let offset = 0;
+  for (const [index, token] of tokens.entries()) {
+    const text = token.surface_form;
+    const start = sentence.indexOf(text, offset);
+    if (start < 0) continue;
+    if (start > offset) runs.push({ text: sentence.slice(offset, start), className: '' });
+    offset = start + text.length;
+    const detail = token.pos_detail_1;
+    let className = '';
+    if (/^[0-9０-９]+$/u.test(text) || detail === '数') className = 'rr-large';
+    else if (/^[\p{Script=Latin}][\p{Script=Latin}\p{Mark}\p{Number}'’.-]*$/u.test(text)) className = 'rr-middle rr-english';
+    else if (token.pos === '名詞' && detail === '固有名詞') className = 'rr-large';
+    else if (token.pos === '動詞' || token.pos === '形容詞' ||
+      detail === '形容動詞語幹' || detail === 'サ変接続') {
+      let next = index + 1;
+      let predicate = token;
+      if (detail === 'サ変接続' && tokens[next]?.pos === '動詞' &&
+        ['する', '為る'].includes(tokens[next].basic_form)) predicate = tokens[next++];
+      let past = false;
+      let lastAuxiliary;
+      while (tokens[next]?.pos === '助動詞') {
+        past ||= tokens[next].basic_form === 'た';
+        lastAuxiliary = tokens[next++];
       }
-
-      // 行の後半に読点や空白があれば、そこで区切る。
-      if (end < characters.length && breakAt > start + (end - start) / 2) {
-        end = breakAt;
-      }
-
-      lines.push(characters.slice(start, end).join('').trim());
-      positions.push({ sentenceIndex, start, end });
-      start = end;
-
-      while (start < characters.length && /^\s$/u.test(characters[start])) {
-        start++;
-      }
-    }
+      const following = tokens[next];
+      const modifiesNoun = following?.pos === '名詞';
+      const terminal = (!following || /^[、。！？!?」』）】]+$/u.test(following.surface_form)) &&
+        (lastAuxiliary ?? predicate).conjugated_form === '基本形';
+      const existence = ['ある', '有る', '在る', 'いる', '居る', 'おる'].includes(predicate.basic_form);
+      className = !existence && !modifiesNoun && (past || terminal) ? 'rr-large' : 'rr-middle';
+    } else if ((token.pos === '名詞' && !['こと', '事'].includes(text) && detail !== '接尾') ||
+      token.pos === '接続詞') className = 'rr-middle';
+    runs.push({ text, className });
   }
+  if (offset < sentence.length) runs.push({ text: sentence.slice(offset), className: '' });
+  if (parsedSentences.size >= 500) parsedSentences.clear();
+  parsedSentences.set(sentence, runs);
+  return runs;
+}
 
-  // 画面幅や文字サイズが変わっても、読んでいた箇所を含む行を表示する。
-  if (readingLayout?.sentences === sentences) {
-    const previous = readingLayout.positions[state.line];
-    if (previous) {
-      const index = positions.findIndex((position) =>
-        position.sentenceIndex === previous.sentenceIndex &&
-        position.start <= previous.start &&
-        previous.start < position.end
-      );
-      if (index >= 0) state.line = index;
-    }
+function appendSentence(track, sentence, highlight) {
+  const element = document.createElement('span');
+  element.className = 'rr-sentence';
+  let offset = 0;
+  for (const run of classifySentence(sentence)) {
+    const span = document.createElement('span');
+    span.className = run.className;
+    const start = highlight ? Math.max(0, highlight.offset - offset) : 0;
+    const end = highlight ? Math.min(run.text.length, highlight.offset + highlight.length - offset) : 0;
+    if (start < end) {
+      const mark = document.createElement('mark');
+      mark.textContent = run.text.slice(start, end);
+      span.append(run.text.slice(0, start), mark, run.text.slice(end));
+    } else span.textContent = run.text;
+    element.append(span);
+    offset += run.text.length;
   }
+  track.append(element);
+}
 
-  readingLayout = { sentences, width, font, lines, positions };
-  return lines;
+function readingSentences() {
+  return state.document?.pages[state.readingPage]?.lines ?? [];
+}
+
+function stopPlayback() {
+  if (playback.frame !== null) cancelAnimationFrame(playback.frame);
+  playback.frame = null;
+  playback.lastTime = null;
+  updatePlaybackControls();
+}
+
+function updatePlaybackControls() {
+  const available = readingSentences().length > 0;
+  const playing = playback.frame !== null;
+  $('reading-play').disabled = !available || playing;
+  $('reading-stop').disabled = !playing;
+  $('reading-search').disabled = !state.document;
+  $('playback-status').textContent = analysisFailed
+    ? '品詞辞書を取得できません。通常サイズで表示しています。開始で再試行できます。'
+    : tokenizerRequest && !tokenizer ? '品詞辞書を読み込み中…'
+    : playing ? '再生中' : '';
+}
+
+function positionTrack() {
+  const viewport = $('reading-window');
+  $('reading-track').style.transform =
+    'translateX(' + (viewport.clientWidth / 2 - playback.distance) + 'px)';
+}
+
+function measureTrack() {
+  const track = $('reading-track');
+  const left = track.getBoundingClientRect().left;
+  playback.sentenceStarts = Array.from(track.children, child => child.getBoundingClientRect().left - left);
+  playback.smallWidth = $('reading-measure').getBoundingClientRect().width;
+  playback.end = track.getBoundingClientRect().width;
+}
+
+function updateSentenceControls(sentences) {
+  const index = state.line;
+  $('previous-text').textContent = sentences[index - 1] ?? '';
+  $('next-text').textContent = sentences[index + 1] ?? '';
+  $('line').value = sentences.length ? index + 1 : '';
+  $('line').max = sentences.length;
+  $('line').disabled = !sentences.length;
+  $('line-total').textContent = sentences.length ? '/ ' + sentences.length + ' 文' : '文';
+  $('previous-text').disabled = $('line-prev').disabled = index === 0;
+  $('next-text').disabled = $('line-next').disabled = index + 1 >= sentences.length;
 }
 
 function renderReading() {
-  const lines = getReadingLines();
-  state.line = clamp(state.line, 0, Math.max(0, lines.length - 1));
-  const index = state.line;
-
-    const sourcePage =
-    state.document?.pages[state.readingPage].sourcePage ??
-    state.readingPage + 1;
-
-  $('reading-page').textContent = state.document
-    ? '元資料 ' + sourcePage + 'ページの文章' +
+  const sentences = readingSentences();
+  const page = state.document?.pages[state.readingPage];
+  const viewport = $('reading-window');
+  const track = $('reading-track');
+  state.line = clamp(state.line, 0, Math.max(0, sentences.length - 1));
+  $('reading-page').textContent = page
+    ? '元資料 ' + (page.sourcePage ?? state.readingPage + 1) + 'ページの文章' +
       ($('lock').checked ? '・固定中' : '')
     : '';
-  $('previous-text').textContent = lines[index - 1] ?? '';
-  $('current-text').textContent = lines[index] ?? (
-    state.document
-      ? 'このページに認識された文章はありません。'
-      : '資料を読み込むと、ここに文章が表示されます。'
-  );
-  $('next-text').textContent = lines[index + 1] ?? '';
+  $('reading-placeholder').hidden = Boolean(sentences.length);
+  $('reading-placeholder').textContent = state.document
+    ? 'このページに認識された文章はありません。'
+    : '資料を読み込むと、ここに文章が表示されます。';
+  viewport.hidden = !sentences.length;
 
-  $('line').value = lines.length ? index + 1 : '';
-  $('line').max = lines.length;
-  $('line').disabled = !lines.length;
-  $('line-total').textContent = lines.length ? '/ ' + lines.length + ' 行' : '行';
-  $('previous-text').disabled = $('line-prev').disabled = index === 0;
-  $('next-text').disabled = $('line-next').disabled = index + 1 >= lines.length;
+  if (playback.page !== page || playback.renderedAnchor !== playback.anchor) {
+    const oldStart = playback.sentenceStarts[state.line] ?? 0;
+    const withinSentence = playback.renderedPage === page ? playback.distance - oldStart : 0;
+    track.replaceChildren();
+    sentences.forEach((sentence, index) => appendSentence(track, sentence,
+      playback.anchor?.sentence === index ? playback.anchor : null));
+    playback.page = playback.renderedPage = page;
+    playback.renderedAnchor = playback.anchor;
+    measureTrack();
+    const mark = track.querySelector('mark');
+    if (mark) {
+      const bounds = mark.getBoundingClientRect();
+      playback.distance = bounds.left - track.getBoundingClientRect().left;
+    } else playback.distance = clamp((playback.sentenceStarts[state.line] ?? 0) + withinSentence, 0, playback.end);
+  }
+  positionTrack();
+  updateSentenceControls(sentences);
+  updatePlaybackControls();
 }
 
 function setLine(index) {
-  const count = getReadingLines().length;
-  state.line = clamp(index, 0, Math.max(0, count - 1));
+  stopPlayback();
+  playback.anchor = null;
+  state.line = clamp(index, 0, Math.max(0, readingSentences().length - 1));
+  playback.distance = playback.sentenceStarts[state.line] ?? 0;
   renderReading();
+}
+
+function animateReading(now) {
+  const previous = playback.lastTime ?? now;
+  playback.lastTime = now;
+  playback.distance += (now - previous) * settings.speed * playback.smallWidth / 1000;
+  if (playback.distance >= playback.end) {
+    const next = $('lock').checked ? -1 :
+      state.document.pages.findIndex((page, index) => index > state.readingPage && page.lines.length);
+    if (next < 0) {
+      playback.distance = playback.end;
+      positionTrack();
+      stopPlayback();
+      return;
+    }
+    const overflow = playback.distance - playback.end;
+    state.page = state.readingPage = next;
+    state.line = 0;
+    playback.anchor = null;
+    renderPage();
+    renderReading();
+    playback.distance = Math.min(overflow, playback.end);
+    positionTrack();
+  } else {
+    if (state.line + 1 < playback.sentenceStarts.length &&
+      playback.distance >= playback.sentenceStarts[state.line + 1]) {
+      state.line++;
+      updateSentenceControls(readingSentences());
+    }
+    positionTrack();
+  }
+  playback.frame = requestAnimationFrame(animateReading);
+}
+
+function startPlayback() {
+  if (!readingSentences().length || playback.frame !== null) return;
+  if (!tokenizer && !tokenizerRequest) void loadTokenizer();
+  if (playback.distance >= playback.end) setLine(0);
+  playback.frame = requestAnimationFrame(animateReading);
+  updatePlaybackControls();
+}
+
+function searchReading(event) {
+  event.preventDefault();
+  const query = $('reading-query').value.trim();
+  const results = $('reading-results');
+  results.replaceChildren();
+  if (!query || !state.document) {
+    $('reading-search-status').textContent = '検索語を入力してください。';
+    return;
+  }
+  let count = 0;
+  const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
+  for (const [pageIndex, page] of state.document.pages.entries()) {
+    for (const [sentence, text] of page.lines.entries()) {
+      for (const match of text.matchAll(pattern)) {
+        count++;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = (page.sourcePage ?? pageIndex + 1) + 'ページ　' +
+          text.slice(Math.max(0, match.index - 14), match.index + match[0].length + 14);
+        button.onclick = () => {
+          stopPlayback();
+          state.page = state.readingPage = pageIndex;
+          state.line = sentence;
+          playback.anchor = { sentence, offset: match.index, length: match[0].length };
+          renderPage();
+          renderReading();
+          $('reading-search-dialog').close();
+        };
+        results.append(button);
+      }
+    }
+  }
+  $('reading-search-status').textContent = count + '件';
 }
 
 function changeZoom(zoom, anchorX, anchorY) {
@@ -217,6 +382,8 @@ function setPage(index) {
   if (page !== state.page) {
     state.page = page;
     if (!$('lock').checked) {
+      stopPlayback();
+      playback.anchor = null;
       state.readingPage = page;
       state.line = 0;
     }
@@ -233,6 +400,8 @@ function toggleTools(open) {
 }
 
 function displayDocument(document, memo) {
+  stopPlayback();
+  playback.anchor = null;
   Object.assign(state, { document, page: 0, readingPage: 0, line: 0, zoom: 1 });
   $('lock').checked = false;
   $('memo').value = memo;
@@ -242,6 +411,7 @@ function displayDocument(document, memo) {
   fitTitle();
   renderReading();
   renderPage();
+  if (!tokenizer) void loadTokenizer();
 }
 
 function applySettings() {
@@ -253,11 +423,15 @@ function applySettings() {
   $('size').value = settings.size;
   $('size-output').value = settings.size + ' pt';
   $('color').value = settings.color;
+  settings.speed = clamp(Number(settings.speed) || 6, 1, 24);
+  $('speed').value = settings.speed;
+  $('speed-output').value = settings.speed + ' 文字分/秒';
 }
 
 function saveSettings() {
   settings.size = Number($('size').value);
   settings.color = $('color').value;
+  settings.speed = Number($('speed').value);
   applySettings();
   try { localStorage.setItem('reading-ruler-settings', JSON.stringify(settings)); }
   catch { showStatus('このブラウザでは設定を保存できませんでした。'); }
@@ -777,7 +951,19 @@ for (const button of document.querySelectorAll('[data-close]')) {
   button.onclick = () => button.closest('dialog').close();
 }
 
-$('size').oninput = $('color').oninput = saveSettings;
+$('color').oninput = $('speed').oninput = saveSettings;
+$('reading-play').onclick = startPlayback;
+$('reading-stop').onclick = stopPlayback;
+$('reading-search').onclick = () => {
+  stopPlayback();
+  $('reading-results').replaceChildren();
+  $('reading-search-status').textContent = '';
+  $('reading-search-dialog').showModal();
+};
+$('reading-search-form').onsubmit = searchReading;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopPlayback();
+});
 $('line-prev').onclick = $('previous-text').onclick = () => setLine(state.line - 1);
 $('line-next').onclick = $('next-text').onclick = () => setLine(state.line + 1);
 $('page-prev').onclick = () => setPage(state.page - 1);
@@ -795,12 +981,41 @@ $('tools').onclick = () => toggleTools($('tool-panel').hidden);
 $('close-tools').onclick = () => toggleTools(false);
 $('lock').onchange = () => {
   if (!$('lock').checked && state.page !== state.readingPage) {
+    stopPlayback();
+    playback.anchor = null;
     state.readingPage = state.page;
     state.line = 0;
   }
   renderReading();
 };
 $('save-memo').onclick = saveMemo;
+$('export-memo').onclick = () => {
+  if (!state.document) return;
+
+  const memo = $('memo').value;
+  if (!memo.trim()) {
+    $('memo-status').textContent = '出力するメモを入力してください。';
+    return;
+  }
+
+  const title = Array.from(state.document.title || '資料')
+    .slice(0, 40)
+    .join('')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .trim();
+
+  const file = new Blob([memo], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(file);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = (title || '資料') + '-メモ.txt';
+  document.body.append(link);
+  link.click();
+  link.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+};
 
 $('zoom-out').onclick = () => changeZoom(state.zoom / 1.25);
 $('zoom-in').onclick = () => changeZoom(state.zoom * 1.25);
@@ -842,7 +1057,12 @@ new ResizeObserver(fitTitle).observe($('title'));
 new ResizeObserver(renderReading).observe($('ruler'));
 
 $('size').oninput = () => {
+  const previousSize = settings.size;
   saveSettings();
+  if (settings.size !== previousSize && readingSentences().length) {
+    playback.distance *= settings.size / previousSize;
+    measureTrack();
+  }
   renderReading();
 };
 

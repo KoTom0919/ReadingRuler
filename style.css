@@ -393,8 +393,78 @@ textarea { resize: vertical; }
   align-self: center;
   grid-template-rows: 2.25em;
 }
+
 /* 行移動ボタンを連打したときのダブルタップ拡大を防ぐ */
 .line-control button,
 .ruler .neighbor {
   touch-action: manipulation;
+}
+
+.reading-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin: 0 0 .5rem;
+}
+
+#playback-status { font-size: .8rem; }
+.ruler { grid-template-rows: auto; }
+
+.ruler .current {
+  position: relative;
+  height: auto;
+  min-height: 2.8em;
+  padding: 0;
+  text-align: center;
+}
+
+#reading-placeholder { white-space: normal; }
+
+#reading-window {
+  position: relative;
+  overflow: hidden;
+  width: min(100%, 9em);
+  height: 2.8em;
+  margin-inline: auto;
+}
+
+#reading-track {
+  position: absolute;
+  left: 0;
+  bottom: .32em;
+  width: max-content;
+  line-height: 1.2;
+  white-space: pre;
+  will-change: transform;
+}
+
+.rr-middle { font-size: 1.5em; }
+.rr-large { font-size: 2em; }
+.rr-english { font-style: italic; }
+
+#reading-track mark { background: #ffeb91; color: inherit; }
+#reading-measure { position: absolute; visibility: hidden; }
+#reading-query { flex: 1; min-width: 0; }
+#reading-results { display: grid; gap: .4rem; }
+#reading-results button { text-align: left; }
+
+/* 右側の文番号と前後ボタンを隠す */
+.reader-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.reader-grid .line-control {
+  display: none;
+}
+
+/* 大サイズを中サイズと同じ倍率にする */
+.rr-large {
+  font-size: 1.5em;
+}
+
+/* 「詳細表示する行を固定」と、その説明文を非表示にする */
+#tool-panel .check:has(> #lock),
+#tool-panel .check:has(> #lock) + .hint {
+  display: none;
 }
