@@ -1,3 +1,9 @@
+
+
+
+
+
+
 'use strict';
 
 const $ = (id) => document.getElementById(id);
@@ -58,11 +64,13 @@ function fitTitle() {
   heading.textContent = characters.slice(0, low).join('') + '・・・';
 }
 
-const dictionaryBase = 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/';
+const dictionaryBase = './kuromoji/';
 const parsedSentences = new Map();
 let tokenizer;
 let tokenizerRequest;
 let analysisFailed = false;
+const analyzedPages = new WeakMap();
+let pageAnalysis;
 const playback = {
   frame: null, lastTime: null, distance: 0, page: null, anchor: null,
   sentenceStarts: [], end: 0, smallWidth: 0
@@ -92,8 +100,8 @@ function loadTokenizer() {
     document.head.append(script);
   }).then(result => {
     tokenizer = result;
-    playback.page = null;
-    renderReading();
+    analyzeReadingPage();
+    updatePlaybackControls();
   }).catch(() => {
     tokenizerRequest = null;
     analysisFailed = true;
@@ -148,11 +156,45 @@ function classifySentence(sentence) {
   return runs;
 }
 
-function appendSentence(track, sentence, highlight) {
+function analyzeReadingPage() {
+  const page = state.document?.pages[state.readingPage];
+  if (!tokenizer || !page?.lines.length || analyzedPages.has(page) || pageAnalysis === page) return;
+  pageAnalysis = page;
+  const runs = [];
+  function analyzeBatch() {
+    if (pageAnalysis !== page) return;
+    if (state.document?.pages[state.readingPage] !== page) {
+      pageAnalysis = undefined;
+      return;
+    }
+    try {
+      const started = performance.now();
+      do {
+        runs.push(classifySentence(page.lines[runs.length]));
+      } while (runs.length < page.lines.length && performance.now() - started < 8);
+    } catch {
+      analyzedPages.set(page, []);
+      pageAnalysis = undefined;
+      $('playback-status').textContent = 'このページの品詞を解析できませんでした。';
+      return;
+    }
+    if (runs.length < page.lines.length) {
+      setTimeout(analyzeBatch, 0);
+      return;
+    }
+    analyzedPages.set(page, runs);
+    pageAnalysis = undefined;
+    // 再生中は表示を作り直さず、停止後に適用する。
+    if (playback.frame === null) renderReading();
+  }
+  setTimeout(analyzeBatch, 0);
+}
+
+function appendSentence(track, runs, highlight) {
   const element = document.createElement('span');
   element.className = 'rr-sentence';
   let offset = 0;
-  for (const run of classifySentence(sentence)) {
+  for (const run of runs) {
     const span = document.createElement('span');
     span.className = run.className;
     const start = highlight ? Math.max(0, highlight.offset - offset) : 0;
@@ -172,11 +214,12 @@ function readingSentences() {
   return state.document?.pages[state.readingPage]?.lines ?? [];
 }
 
-function stopPlayback() {
+function stopPlayback(applyAnalysis = false) {
   if (playback.frame !== null) cancelAnimationFrame(playback.frame);
   playback.frame = null;
   playback.lastTime = null;
-  updatePlaybackControls();
+  if (applyAnalysis) renderReading();
+  else updatePlaybackControls();
 }
 
 function updatePlaybackControls() {
@@ -224,8 +267,7 @@ function renderReading() {
   const track = $('reading-track');
   state.line = clamp(state.line, 0, Math.max(0, sentences.length - 1));
   $('reading-page').textContent = page
-    ? '元資料 ' + (page.sourcePage ?? state.readingPage + 1) + 'ページの文章' +
-      ($('lock').checked ? '・固定中' : '')
+    ? '元資料 ' + (page.sourcePage ?? state.readingPage + 1) + 'ページの文章'
     : '';
   $('reading-placeholder').hidden = Boolean(sentences.length);
   $('reading-placeholder').textContent = state.document
@@ -233,14 +275,19 @@ function renderReading() {
     : '資料を読み込むと、ここに文章が表示されます。';
   viewport.hidden = !sentences.length;
 
-  if (playback.page !== page || playback.renderedAnchor !== playback.anchor) {
+  const analysis = playback.page === page && playback.frame !== null
+    ? playback.renderedAnalysis : analyzedPages.get(page);
+  if (playback.page !== page || playback.renderedAnchor !== playback.anchor ||
+      playback.renderedAnalysis !== analysis) {
     const oldStart = playback.sentenceStarts[state.line] ?? 0;
     const withinSentence = playback.renderedPage === page ? playback.distance - oldStart : 0;
     track.replaceChildren();
-    sentences.forEach((sentence, index) => appendSentence(track, sentence,
+    sentences.forEach((sentence, index) => appendSentence(track,
+      analysis?.[index] ?? [{ text: sentence, className: '' }],
       playback.anchor?.sentence === index ? playback.anchor : null));
     playback.page = playback.renderedPage = page;
     playback.renderedAnchor = playback.anchor;
+    playback.renderedAnalysis = analysis;
     measureTrack();
     const mark = track.querySelector('mark');
     if (mark) {
@@ -251,6 +298,7 @@ function renderReading() {
   positionTrack();
   updateSentenceControls(sentences);
   updatePlaybackControls();
+  analyzeReadingPage();
 }
 
 function setLine(index) {
@@ -266,8 +314,7 @@ function animateReading(now) {
   playback.lastTime = now;
   playback.distance += (now - previous) * settings.speed * playback.smallWidth / 1000;
   if (playback.distance >= playback.end) {
-    const next = $('lock').checked ? -1 :
-      state.document.pages.findIndex((page, index) => index > state.readingPage && page.lines.length);
+    const next = state.document.pages.findIndex((page, index) => index > state.readingPage && page.lines.length);
     if (next < 0) {
       playback.distance = playback.end;
       positionTrack();
@@ -380,13 +427,10 @@ function setPage(index) {
   if (!state.document) return;
   const page = clamp(index, 0, state.document.pages.length - 1);
   if (page !== state.page) {
-    state.page = page;
-    if (!$('lock').checked) {
-      stopPlayback();
-      playback.anchor = null;
-      state.readingPage = page;
-      state.line = 0;
-    }
+    stopPlayback();
+    playback.anchor = null;
+    state.page = state.readingPage = page;
+    state.line = 0;
     renderPage();
   } else $('page').value = page + 1;
   renderReading();
@@ -395,7 +439,7 @@ function setPage(index) {
 function toggleTools(open) {
   $('tool-panel').hidden = !open;
   $('tools').setAttribute('aria-expanded', String(open));
-  if (open) $('lock').focus();
+  if (open) $('close-tools').focus();
   else if (!$('tools').disabled) $('tools').focus();
 }
 
@@ -403,7 +447,6 @@ function displayDocument(document, memo) {
   stopPlayback();
   playback.anchor = null;
   Object.assign(state, { document, page: 0, readingPage: 0, line: 0, zoom: 1 });
-  $('lock').checked = false;
   $('memo').value = memo;
   $('memo-status').textContent = '';
   $('tool-panel').hidden = true;
@@ -851,13 +894,15 @@ pages.push({
       });
     } catch { saved = false; }
 
-    displayDocument(document, '');
     $('import-dialog').close();
+    displayDocument(document, '');
     showStatus(saved ? pages.length + ' ページを読み込みました。' : '資料を表示しました。ブラウザの保存領域に書き込めなかったため、履歴には残りません。');
   } catch (error) {
-    importStatus('読み込みに失敗しました。通信状況やファイルを確認してください。' + (error.message || String(error)));
+    const message = '読み込みに失敗しました。' + (error.message || String(error));
+    if ($('import-dialog').open) importStatus(message);
+    else showStatus(message);
   } finally {
-    if (worker) await worker.terminate().catch(() => {});
+    if (worker) void worker.terminate().catch(() => {});
     busy = false;
     refreshImportControls();
   }
@@ -953,7 +998,7 @@ for (const button of document.querySelectorAll('[data-close]')) {
 
 $('color').oninput = $('speed').oninput = saveSettings;
 $('reading-play').onclick = startPlayback;
-$('reading-stop').onclick = stopPlayback;
+$('reading-stop').onclick = () => stopPlayback(true);
 $('reading-search').onclick = () => {
   stopPlayback();
   $('reading-results').replaceChildren();
@@ -979,19 +1024,10 @@ for (const [id, setter, current] of [['line', setLine, () => state.line], ['page
 
 $('tools').onclick = () => toggleTools($('tool-panel').hidden);
 $('close-tools').onclick = () => toggleTools(false);
-$('lock').onchange = () => {
-  if (!$('lock').checked && state.page !== state.readingPage) {
-    stopPlayback();
-    playback.anchor = null;
-    state.readingPage = state.page;
-    state.line = 0;
-  }
-  renderReading();
-};
 $('save-memo').onclick = saveMemo;
-$('export-memo').onclick = () => {
+const exportMemoButton = $('export-memo');
+if (exportMemoButton) exportMemoButton.onclick = () => {
   if (!state.document) return;
-
   const memo = $('memo').value;
   if (!memo.trim()) {
     $('memo-status').textContent = '出力するメモを入力してください。';
@@ -999,21 +1035,15 @@ $('export-memo').onclick = () => {
   }
 
   const title = Array.from(state.document.title || '資料')
-    .slice(0, 40)
-    .join('')
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .trim();
-
+    .slice(0, 40).join('').replace(/[\\/:*?"<>|]/g, '_').trim();
   const file = new Blob([memo], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(file);
   const link = document.createElement('a');
-
   link.href = url;
   link.download = (title || '資料') + '-メモ.txt';
   document.body.append(link);
   link.click();
   link.remove();
-
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 };
 
@@ -1069,3 +1099,7 @@ $('size').oninput = () => {
 applySettings();
 renderReading();
 renderPage();
+
+
+
+
