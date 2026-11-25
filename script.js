@@ -1,9 +1,3 @@
-
-
-
-
-
-
 'use strict';
 
 const $ = (id) => document.getElementById(id);
@@ -339,6 +333,56 @@ function animateReading(now) {
   }
   playback.frame = requestAnimationFrame(animateReading);
 }
+
+function scrollReading(delta) {
+  stopPlayback();
+  if (playback.anchor) {
+    playback.anchor = null;
+    renderReading();
+  }
+  playback.distance = clamp(playback.distance + delta, 0, playback.end);
+
+  let line = state.line;
+  while (line > 0 && playback.distance < playback.sentenceStarts[line]) line--;
+  while (line + 1 < playback.sentenceStarts.length &&
+    playback.distance >= playback.sentenceStarts[line + 1]) line++;
+  if (line !== state.line) {
+    state.line = line;
+    updateSentenceControls(readingSentences());
+  }
+  positionTrack();
+}
+
+const readingSurface = $('current-text');
+let readingDrag = null;
+
+readingSurface.addEventListener('pointerdown', (event) => {
+  if (!event.isPrimary || event.button !== 0 || !readingSentences().length) return;
+  readingDrag = { id: event.pointerId, x: event.clientX, active: false };
+  readingSurface.setPointerCapture(event.pointerId);
+});
+
+readingSurface.addEventListener('pointermove', (event) => {
+  if (readingDrag?.id !== event.pointerId) return;
+  const delta = readingDrag.x - event.clientX;
+  if (!readingDrag.active && Math.abs(delta) < 5) return;
+  readingDrag.active = true;
+  readingDrag.x = event.clientX;
+  scrollReading(delta);
+});
+
+readingSurface.addEventListener('lostpointercapture', (event) => {
+  if (readingDrag?.id === event.pointerId) readingDrag = null;
+});
+
+readingSurface.addEventListener('wheel', (event) => {
+  const delta = event.deltaX || (event.shiftKey ? event.deltaY : 0);
+  if (!delta || !readingSentences().length) return;
+  const unit = event.deltaMode === 1 ? playback.smallWidth :
+    event.deltaMode === 2 ? $('reading-window').clientWidth : 1;
+  event.preventDefault();
+  scrollReading(delta * unit);
+}, { passive: false });
 
 function startPlayback() {
   if (!readingSentences().length || playback.frame !== null) return;

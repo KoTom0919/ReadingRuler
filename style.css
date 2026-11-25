@@ -468,3 +468,16 @@ textarea { resize: vertical; }
 #tool-panel .check:has(> #lock) + .hint {
   display: none;
 }
+/* 文章を横にドラッグしながら、縦のスワイプでページを移動できるようにする */
+#current-text {
+  touch-action: pan-y pinch-zoom;
+}
+
+#current-text:has(#reading-window:not([hidden])) {
+  cursor: grab;
+  user-select: none;
+}
+
+#current-text:has(#reading-window:not([hidden])):active {
+  cursor: grabbing;
+}
